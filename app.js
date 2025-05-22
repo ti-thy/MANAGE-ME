@@ -6,7 +6,7 @@ const passport = require('passport');
 const cookieParser = require('cookie-parser');
 const authRouter = require('./routes/authRouter');
 const usersRouter = require('./routes/usersRouter');
-const emailAccountsRouter = require('./routes/emailAccountRouter');
+const emailAccountsRouter = require('./routes/emailAccountsRouter');
 const eventsRouter = require('./routes/eventsRouter');
 const notificationsRouter = require('./routes/notificationRouter');
 require('./auth');
@@ -15,7 +15,7 @@ require('dotenv').config();
 const app = express();
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('Connected to MongoDB'))
   .catch(err => console.error('MongoDB connection error:', err));
 
