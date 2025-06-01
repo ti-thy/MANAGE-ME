@@ -1,28 +1,114 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Linking, StyleSheet, View } from 'react-native';
 import * as Animatable from 'react-native-animatable';
 import { Button, Input } from 'react-native-elements';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { loginUser } from '../shared/api';
 
 const LoginScreen = ({ navigation }) => {
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+
+  // Handle OAuth redirect URL in React Native
+  useEffect(() => {
+    const handleOAuthRedirect = async (event) => {
+      const { url } = event;
+      if (url.startsWith('http://localhost:3000')) {
+        const urlParams = new URLSearchParams(url.split('?')[1]);
+        const token = urlParams.get('token');
+        if (token) {
+          try {
+            await AsyncStorage.setItem('token', token);
+            const response = await fetch('http://localhost:3000/api/users/me', {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            const user = await response.json();
+            if (response.ok) {
+              Alert.alert('Success', 'Logged in with Google successfully!');
+              navigation.navigate('Calendar', { userId: user.id, username: user.username });
+            } else {
+              throw new Error('Failed to fetch user data');
+            }
+          } catch (error) {
+            Alert.alert('Error', 'Failed to handle Google login');
+          }
+        }
+      }
+    };
+
+    Linking.addEventListener('url', handleOAuthRedirect);
+    Linking.getInitialURL().then(url => {
+      if (url) handleOAuthRedirect({ url });
+    });
+
+    return () => {
+      Linking.removeAllListeners('url');
+    };
+  }, [navigation]);
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please enter both email and password');
+    if (!username || !email) {
+      Alert.alert('Error', 'Please enter both username and email');
       return;
     }
+
     try {
-      const response = await loginUser(email, password);
-      await AsyncStorage.setItem('token', response.token);
-      Alert.alert('Success', 'Logged in successfully!');
-      navigation.navigate('Calendar', { userId: response.user.id, username: response.user.username });
+      // Attempt to login
+      let response = await fetch('http://localhost:3000/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: 'defaultPassword123' })
+      });
+
+      if (response.ok) {
+        const user = await response.json();
+        await AsyncStorage.setItem('token', user.token);
+        Alert.alert('Success', 'Logged in successfully!');
+        navigation.navigate('Calendar', { userId: user.user.id, username: user.user.username });
+      } else if (response.status === 401) {
+        // If login fails, attempt signup
+        response = await fetch('http://localhost:3000/api/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, email, password: 'defaultPassword123' })
+        });
+
+        if (response.ok) {
+          // Retry login after signup
+          response = await fetch('http://localhost:3000/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password: 'defaultPassword123' })
+          });
+
+          if (response.ok) {
+            const user = await response.json();
+            await AsyncStorage.setItem('token', user.token);
+            Alert.alert(
+              'Success',
+              'Account created successfully! For future logins, use the password: defaultPassword123',
+              [{ text: 'OK', onPress: () => navigation.navigate('Calendar', { userId: user.user.id, username: user.user.username }) }]
+            );
+          } else {
+            throw new Error('Failed to login after signup');
+          }
+        } else {
+          throw new Error('Failed to create account');
+        }
+      } else {
+        throw new Error('Failed to login');
+      }
     } catch (error) {
-      Alert.alert('Error', error.message || 'Failed to login');
+      Alert.alert('Error', 'Failed to create/login account: ' + error.message);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      await Linking.openURL('http://localhost:3000/api/auth/google');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to initiate Google login');
     }
   };
 
@@ -41,6 +127,15 @@ const LoginScreen = ({ navigation }) => {
       {/* Form Container */}
       <Animatable.View animation="fadeInUp" duration={1000} style={styles.formContainer}>
         <Input
+          placeholder="Username"
+          leftIcon={{ type: 'material-community', name: 'account', color: '#26A69A' }}
+          value={username}
+          onChangeText={setUsername}
+          containerStyle={styles.input}
+          inputStyle={styles.inputText}
+          placeholderTextColor="#666"
+        />
+        <Input
           placeholder="Email"
           leftIcon={{ type: 'material-community', name: 'email', color: '#26A69A' }}
           value={email}
@@ -48,28 +143,28 @@ const LoginScreen = ({ navigation }) => {
           containerStyle={styles.input}
           inputStyle={styles.inputText}
           placeholderTextColor="#666"
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
-        <Input
-          placeholder="Password"
-          leftIcon={{ type: 'material-community', name: 'lock', color: '#26A69A' }}
-          value={password}
-          onChangeText={setPassword}
-          containerStyle={styles.input}
-          inputStyle={styles.inputText}
-          placeholderTextColor="#666"
-          secureTextEntry
         />
         <LinearGradient
           colors={['#FFCA28', '#FFB300']}
           style={styles.buttonGradient}
         >
           <Button
-            title="Login"
+            title="Login / Sign Up"
             onPress={handleLogin}
             buttonStyle={styles.button}
             titleStyle={styles.buttonText}
+          />
+        </LinearGradient>
+        <LinearGradient
+          colors={['#FFCA28', '#FFB300']}
+          style={[styles.buttonGradient, { marginTop: 10 }]}
+        >
+          <Button
+            title="Sign in with Google"
+            onPress={handleGoogleLogin}
+            buttonStyle={styles.button}
+            titleStyle={styles.buttonText}
+            icon={{ type: 'material-community', name: 'google', color: '#333', size: 20, marginRight: 10 }}
           />
         </LinearGradient>
       </Animatable.View>
